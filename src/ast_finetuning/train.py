@@ -6,11 +6,26 @@ import random
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
 from .data import FMADataset
 from .model import ASTFineTuner
+
+
+def _prepare_batch(batch: object, device: torch.device) -> dict[str, torch.Tensor]:
+    """Convert the dataset's possible list/tuple output to model inputs."""
+    if isinstance(batch, list):
+        if batch and all(isinstance(item, dict) for item in batch):
+            batch = default_collate(batch)
+        elif len(batch) == 2:
+            batch = {"input_values": batch[0], "labels": batch[1]}
+    elif isinstance(batch, tuple) and len(batch) == 2:
+        batch = {"input_values": batch[0], "labels": batch[1]}
+
+    if not isinstance(batch, dict):
+        raise TypeError("Expected a mapping or (input_values, labels) batch")
+    return {key: value.to(device) for key, value in batch.items()}
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,8 +51,8 @@ def main() -> None:
     val_set = FMADataset(args.data_dir, args.metadata, subset=args.subset, train=False)
     labels = sorted(train_set.label_encoder.classes_.tolist())
     extractor = ASTFeatureExtractor.from_pretrained(args.model_name)
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
+    val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
 
     model = ASTFineTuner.from_backbone(args.model_name, num_labels=len(labels)).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
@@ -48,7 +63,7 @@ def main() -> None:
         model.train()
         train_loss = 0.0
         for batch in train_loader:
-            batch = {key: value.to(device) for key, value in batch.items()}
+            batch = _prepare_batch(batch, device)
             optimizer.zero_grad(set_to_none=True)
             loss = model(**batch)["loss"]
             loss.backward()
@@ -58,7 +73,7 @@ def main() -> None:
         correct = total = 0
         with torch.no_grad():
             for batch in val_loader:
-                batch = {key: value.to(device) for key, value in batch.items()}
+                batch = _prepare_batch(batch, device)
                 output = model(**batch)
                 correct += (output["logits"].argmax(dim=-1) == batch["labels"]).sum().item()
                 total += batch["labels"].numel()

@@ -7,3 +7,6 @@ outputs/
 *.pt
 *.pth
 *.safetensors
+
+# Datasets
+datasets/
