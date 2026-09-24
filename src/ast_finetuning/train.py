@@ -5,6 +5,7 @@ import json
 import random
 from pathlib import Path
 
+import polars as pl
 import torch
 from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
@@ -77,29 +78,59 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
     best_accuracy = -1.0
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    history_path = args.output_dir / "history.csv"
+    history: list[dict[str, float | int]] = []
 
     for epoch in range(1, args.epochs + 1):
         model.train()
-        train_loss = 0.0
+        train_loss_sum = 0.0
+        train_correct = 0
+        train_total = 0
         for batch in train_loader:
             batch = _prepare_batch(batch, device)
             optimizer.zero_grad(set_to_none=True)
-            loss = model(**batch)["loss"]
+            output = model(**batch)
+            loss = output["loss"]
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
+            batch_size = batch["labels"].size(0)
+            train_loss_sum += loss.item() * batch_size
+            train_correct += (output["logits"].argmax(dim=-1) == batch["labels"]).sum().item()
+            train_total += batch_size
+
+        train_loss = train_loss_sum / max(1, train_total)
+        train_accuracy = train_correct / max(1, train_total)
         model.eval()
+        val_loss_sum = 0.0
         correct = total = 0
         with torch.no_grad():
             for batch in val_loader:
                 batch = _prepare_batch(batch, device)
                 output = model(**batch)
+                batch_size = batch["labels"].size(0)
+                val_loss_sum += output["loss"].item() * batch_size
                 correct += (output["logits"].argmax(dim=-1) == batch["labels"]).sum().item()
-                total += batch["labels"].numel()
-        accuracy = correct / total if total else 0.0
-        print(f"epoch={epoch:03d} train_loss={train_loss / max(1, len(train_loader)):.4f} val_accuracy={accuracy:.4f}")
-        if accuracy >= best_accuracy:
-            best_accuracy = accuracy
+                total += batch_size
+        val_loss = val_loss_sum / max(1, total)
+        val_accuracy = correct / max(1, total)
+        metrics = {
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "validation_loss": val_loss,
+            "train_accuracy": train_accuracy,
+            "validation_accuracy": val_accuracy,
+        }
+        history.append(metrics)
+        pl.DataFrame(history).write_csv(history_path)
+        print(
+            f"epoch={epoch:03d} "
+            f"train_loss={train_loss:.4f} "
+            f"train_accuracy={train_accuracy:.4f} "
+            f"validation_loss={val_loss:.4f} "
+            f"validation_accuracy={val_accuracy:.4f}"
+        )
+        if val_accuracy >= best_accuracy:
+            best_accuracy = val_accuracy
             model.save_pretrained(args.output_dir)
             extractor.save_pretrained(args.output_dir)
             (args.output_dir / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
