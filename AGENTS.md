@@ -8,36 +8,7 @@ Gerenciador Oficial: Utilize exclusivamente o uv. Não utilize pip padrão, poet
 
 Instalação de Dependências: Ao sugerir comandos de instalação, use a sintaxe do uv, como uv pip install <pacote> ou uv add <pacote>.
 
-PyTorch com CUDA 13.0: O projeto requer PyTorch configurado especificamente para CUDA 13.0. Veja exemplo do pytorch.toml abaixo.
-```
-[project]
-name = "estudos-pytorch"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.14"
-dependencies = [
-    "ipykernel>=7.1.0",
-    "matplotlib>=3.10.8",
-    "torch>=2.10.0",
-    "torchvision>=0.25.0",
-]
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu130" },
-]
-torchvision = [
-    { index = "pytorch-cu130" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-```
-
-
+PyTorch com CUDA 13.0: O projeto requer PyTorch configurado especificamente para CUDA 13.0. Veja exemplo do pytorch.toml dentro do repo.
 
 2. Gerenciamento de dependências.
 
@@ -47,9 +18,9 @@ Dar preferência a utilizar a biblioteca polars e pyarrow no lugar da biblioteca
 
 Manipulação de Arquivos e Diretórios:
 
-✅ USAR: pathlib.Path (para navegação de diretórios, junção de caminhos e verificação de arquivos).
+USAR: pathlib.Path (para navegação de diretórios, junção de caminhos e verificação de arquivos).
 
-❌ NÃO USAR: os.path.
+NÃO USAR: os.path.
 
 Processamento de Áudio:
 
@@ -57,7 +28,9 @@ USAR: torchaudio e torchaudio.functional como prioridade. Caso seja necessário 
 
 3. Padrões de Implementação.
 
-Dataset: Estamos trabalhando primariamente com o subset fma_small do FreeMusicArchive.
+Dataset: Estamos trabalhando com os subsets FMA-Small e FMA-Medium do FreeMusicArchive.
+
+Train Validation Split: Coluna `split` dentro do csv de metadados do FMA contém separação entre `training`, `validation` e `test`. 
 
 Caminho: Todos os datasets estão localizados na pasta /datasets/ dentro da raiz do projeto.
 
