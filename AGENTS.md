@@ -28,9 +28,9 @@ USAR: torchaudio e torchaudio.functional como prioridade. Caso seja necessário 
 
 3. Padrões de Implementação.
 
-Dataset: Estamos trabalhando com os subsets FMA-Small e FMA-Medium do FreeMusicArchive.
+Dataset: Estamos trabalhando com os subsets FMA-Small, FMA-Medium e FMA-Large do FreeMusicArchive.
 
-Train Validation Split: Coluna `split` dentro do csv de metadados do FMA contém separação entre `training`, `validation` e `test`. 
+Train Validation Split: Coluna `split` dentro do csv de metadados do FMA contém separação entre `training`, `validation` e `test`.
 
 Caminho: Todos os datasets estão localizados na pasta /datasets/ dentro da raiz do projeto.
 

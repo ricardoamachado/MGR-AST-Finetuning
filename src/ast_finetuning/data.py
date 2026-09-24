@@ -108,6 +108,7 @@ class FMADataset(Dataset):
         assert subset in {"small", "medium", "large"}, "Subset must be one of 'small', 'medium', or 'large'."
         self.data_dir = Path(dataset_dir)
         self.metadata_path = Path(metadata_path)
+        self.subset = subset
         df = pl.read_csv(metadata_path, skip_rows=1, null_values=[""])
         df = df.rename({df.columns[0]: "track_id"})
         df = df.filter(pl.col("track_id") != "track_id").with_columns(
@@ -132,7 +133,7 @@ class FMADataset(Dataset):
         # The FMA dataset organizes audio files in folders based on the first three digits of the track ID.
         track_id_str = f"{track_id:06d}"
         folder = track_id_str[:3]
-        return self.data_dir / folder / f"{track_id_str}.mp3"
+        return self.data_dir / f"fma_{self.subset}" / folder / f"{track_id_str}.mp3"
 
     def __len__(self):
         return self.length

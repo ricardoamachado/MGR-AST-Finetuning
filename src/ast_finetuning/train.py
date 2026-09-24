@@ -6,24 +6,24 @@ import random
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from transformers import ASTFeatureExtractor
 
-from .data import AudioDataset, build_manifest
+from .data import FMADataset
 from .model import ASTFineTuner
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fine-tune o AST em arquivos de áudio locais.")
+    parser = argparse.ArgumentParser(description="Ajuste fino do AST em arquivos de áudio locais.")
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
-    parser.add_argument("--metadata", type=Path, default=None, help="CSV/Parquet com colunas path,label.")
+    parser.add_argument("--metadata", type=Path, default=None, help="CSV de metadados do FMA.")
     parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/ast-finetuned"))
     parser.add_argument("--model-name", default="MIT/ast-finetuned-audioset-10-10-0.4593")
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--learning-rate", type=float, default=1e-5)
-    parser.add_argument("--val-ratio", type=float, default=0.2)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--learning-rate", type=float, default=5e-4)
+    parser.add_argument("--seed", type=int, default=1337)
     return parser.parse_args()
 
 
@@ -32,16 +32,10 @@ def main() -> None:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    manifest, labels = build_manifest(args.data_dir, args.metadata)
+    train_set = FMADataset(args.data_dir, args.metadata, subset=args.subset, train=True)
+    val_set = FMADataset(args.data_dir, args.metadata, subset=args.subset, train=False)
+    labels = sorted(train_set.label_encoder.classes_.tolist())
     extractor = ASTFeatureExtractor.from_pretrained(args.model_name)
-    dataset = AudioDataset(manifest, extractor)
-    indices = list(range(len(dataset)))
-    random.shuffle(indices)
-    split = max(1, int(len(indices) * args.val_ratio))
-    val_set = Subset(dataset, indices[:split])
-    train_set = Subset(dataset, indices[split:])
-    if not train_set:
-        raise ValueError("Poucos arquivos para separar treino e validação.")
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
