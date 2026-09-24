@@ -15,7 +15,7 @@ class ASTFineTuner(ASTPreTrainedModel):
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.softmax = nn.Softmax(dim=-1)
-        self.loss_function = nn.CrossEntropyLoss()
+        self._classification_loss = nn.CrossEntropyLoss()
         self.post_init()
 
     @classmethod
@@ -30,6 +30,6 @@ class ASTFineTuner(ASTPreTrainedModel):
         outputs = self.ast(input_values=input_values)
         pooled = outputs.pooler_output if outputs.pooler_output is not None else outputs.last_hidden_state.mean(dim=1)
         logits = self.classifier(self.dropout(pooled))
-        loss = self.loss_function(logits, labels) if labels is not None else None
+        loss = self._classification_loss(logits, labels) if labels is not None else None
         probabilities = self.softmax(logits)
         return {"loss": loss, "logits": logits, "probabilities": probabilities}

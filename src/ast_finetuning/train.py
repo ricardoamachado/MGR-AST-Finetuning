@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
-from .data import FMADataset
+from .data import ASTMelSpectrogram, FMADataset
 from .model import ASTFineTuner
 
 
@@ -31,7 +31,12 @@ def _prepare_batch(batch: object, device: torch.device) -> dict[str, torch.Tenso
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ajuste fino do AST em arquivos de áudio locais.")
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
-    parser.add_argument("--metadata", type=Path, default=None, help="CSV de metadados do FMA.")
+    parser.add_argument(
+        "--metadata",
+        type=Path,
+        default=Path("datasets/fma_metadata/tracks.csv"),
+        help="CSV de metadados do FMA.",
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/ast-finetuned"))
     parser.add_argument("--model-name", default="MIT/ast-finetuned-audioset-10-10-0.4593")
     parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
@@ -47,10 +52,24 @@ def main() -> None:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_set = FMADataset(args.data_dir, args.metadata, subset=args.subset, train=True)
-    val_set = FMADataset(args.data_dir, args.metadata, subset=args.subset, train=False)
-    labels = sorted(train_set.label_encoder.classes_.tolist())
     extractor = ASTFeatureExtractor.from_pretrained(args.model_name)
+    mel_transform = ASTMelSpectrogram(mean=extractor.mean, std=extractor.std)
+    train_set = FMADataset(
+        args.data_dir,
+        args.metadata,
+        subset=args.subset,
+        train=True,
+        mel_transform=mel_transform,
+    )
+    val_set = FMADataset(
+        args.data_dir,
+        args.metadata,
+        subset=args.subset,
+        train=False,
+        class_names=train_set.classes_,
+        mel_transform=mel_transform,
+    )
+    labels = train_set.classes_
     train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
 

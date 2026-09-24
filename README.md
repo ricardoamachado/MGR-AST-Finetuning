@@ -4,30 +4,25 @@ Projeto para fine-tuning do modelo [`MIT/ast-finetuned-audioset-10-10-0.4593`](h
 
 ## Formato dos dados
 
-A forma mais simples é organizar os áudios por classe:
+O treino usa o `FMADataset` e espera o layout padrão do FMA:
 
 ```text
 datasets/
-├── rock/arquivo_01.wav
-├── rock/arquivo_02.mp3
-└── jazz/arquivo_03.flac
+├── fma_small/
+│   └── 000/000002.mp3
+└── fma_metadata/tracks.csv
 ```
 
-Alternativamente, use `--metadata caminho.csv`, com as colunas `path,label`. Caminhos relativos no CSV são resolvidos a partir da pasta do CSV.
+O `tracks.csv` é usado para obter o gênero (`genre_top`) e a divisão oficial de treino/avaliação do FMA. Use `--metadata` para informar outro caminho.
 
 ## Instalação e treino
 
 ```powershell
 uv sync
-uv run python -m ast_finetuning.train --data-dir datasets --epochs 10 --batch-size 8
+uv run python -m ast_finetuning.train --data-dir datasets --metadata datasets/fma_tracks.csv --subset small --epochs 10 --batch-size 8
 ```
 
 O PyTorch e o TorchAudio são obtidos do índice CUDA 13.0 configurado no `pyproject.toml`. O melhor checkpoint fica em `checkpoints/ast-finetuned`.
 
-## Inferência
 
-```powershell
-uv run python -m ast_finetuning.predict datasets/rock/arquivo_01.wav
-```
-
-Durante o treinamento, a entrada é convertida para mono, reamostrada para 16 kHz e transformada pelo `ASTFeatureExtractor` no espectrograma Mel esperado pelo AST. A perda usa logits (`CrossEntropyLoss`); o Softmax é aplicado para expor as probabilidades na saída.
+Durante o treinamento e a avaliação, o `FMADataset` retorna diretamente o espectrograma Mel, nunca a forma de onda. Cada áudio é convertido para mono, reamostrado para 16 kHz e transformado com 128 bins de frequência, `hop_length=160` (10 ms), janela Hamming de 400 amostras (25 ms) e `n_fft=400`. O resultado é normalizado e ajustado para 1024 frames, o tamanho esperado pelo AST. A perda usa logits (`CrossEntropyLoss`); o Softmax é aplicado para expor as probabilidades na saída.

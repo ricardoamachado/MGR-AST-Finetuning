@@ -7,9 +7,57 @@ import torch
 import torchaudio
 from torch.utils.data import Dataset
 from transformers import ASTFeatureExtractor
-from sklearn.preprocessing import LabelEncoder
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
+
+
+class ASTMelSpectrogram(torch.nn.Module):
+    """Convert waveforms to the fixed-size log-Mel input expected by AST."""
+
+    def __init__(
+        self,
+        sample_rate: int = 16_000,
+        n_mels: int = 128,
+        hop_length: int = 160,
+        win_length: int = 400,
+        target_frames: int = 1024,
+        # From AST preprocessor_config.json: https://huggingface.co/asteroid/ast-finetuned-audioset-10-10-0.4593.
+        mean: float = -4.2677393,
+        std: float = 4.5689974,
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.target_frames = target_frames
+        self.mean = mean
+        self.std = std
+        self.mel_spectrogram = torchaudio.transforms.MelSpectrogram(
+            sample_rate=sample_rate,
+            n_fft=win_length,
+            win_length=win_length,
+            hop_length=hop_length,
+            n_mels=n_mels,
+            window_fn=torch.hamming_window,
+            power=2.0,
+            center=True,
+        )
+
+    def forward(self, waveform: torch.Tensor, source_sample_rate: int) -> torch.Tensor:
+        """Return a normalized tensor with shape ``[target_frames, 128]``."""
+        waveform = waveform.mean(dim=0) if waveform.ndim == 2 else waveform
+        if source_sample_rate != self.sample_rate:
+            waveform = torchaudio.functional.resample(
+                waveform, source_sample_rate, self.sample_rate
+            )
+        mel = self.mel_spectrogram(waveform)
+        log_mel = 10.0 * torch.log10(mel.clamp_min(1e-10))
+        log_mel = (log_mel - self.mean) / self.std
+        if log_mel.shape[-1] >= self.target_frames:
+            log_mel = log_mel[..., : self.target_frames]
+        else:
+            log_mel = torch.nn.functional.pad(
+                log_mel, (0, self.target_frames - log_mel.shape[-1])
+            )
+        return log_mel.transpose(0, 1).contiguous()
 
 
 def build_manifest(
@@ -101,11 +149,19 @@ class AudioDataset(Dataset):
 
 
 class FMADataset(Dataset):
-    """Load FMA dataset."""
+    """Load FMA files and expose Mel spectrograms instead of raw waveforms."""
 
     def __init__(
-        self, dataset_dir: Path, metadata_path: Path, subset="small", train=True):
-        assert subset in {"small", "medium", "large"}, "Subset must be one of 'small', 'medium', or 'large'."
+        self,
+        dataset_dir: Path,
+        metadata_path: Path,
+        subset="small",
+        train=True,
+        class_names: list[str] | None = None,
+        mel_transform: ASTMelSpectrogram | None = None,
+    ):
+        if subset not in {"small", "medium", "large"}:
+            raise ValueError("Subset must be one of 'small', 'medium', or 'large'.")
         self.data_dir = Path(dataset_dir)
         self.metadata_path = Path(metadata_path)
         self.subset = subset
@@ -125,8 +181,13 @@ class FMADataset(Dataset):
         # Get the track_ids and genres as lists.
         self.track_ids = df_subset["track_id"].cast(pl.Int64).to_list()
         self.genres = df_subset["genre_top"].to_list()
-        self.label_encoder = LabelEncoder()
-        self.labels = self.label_encoder.fit_transform(self.genres)
+        self.classes_ = sorted(class_names or set(self.genres))
+        self.class_to_index = {name: index for index, name in enumerate(self.classes_)}
+        unknown_classes = sorted(set(self.genres) - set(self.class_to_index))
+        if unknown_classes:
+            raise ValueError(f"Classes ausentes no conjunto de treino: {unknown_classes}")
+        self.labels = [self.class_to_index[genre] for genre in self.genres]
+        self.mel_transform = mel_transform or ASTMelSpectrogram()
         self.length = len(self.track_ids)
 
     def _get_audio_path(self, track_id):
@@ -145,12 +206,11 @@ class FMADataset(Dataset):
         # Load the audio file using torchaudio. If it fails, create a silent waveform.
         try:
             waveform, sample_rate = torchaudio.load(audio_path)
-        except Exception as e:
+        except Exception:
             # Create a silent 30s waveform.
             sample_rate = 22050  # Default sample rate for FMA dataset
             waveform = torch.zeros(2, 30 * sample_rate)
 
-        # Get the label for the original index and convert it to a tensor.
-        label = self.labels[idx]
-        label_tensor = torch.tensor(label, dtype=torch.long)
-        return waveform, label_tensor
+        mel_spectrogram = self.mel_transform(waveform, sample_rate)
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        return {"input_values": mel_spectrogram, "labels": label}

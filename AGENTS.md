@@ -36,10 +36,17 @@ Train Validation Split: Coluna `split` dentro do csv de metadados do FMA contém
 
 Caminho: Todos os datasets estarão localizados na pasta /datasets/ dentro da raiz do projeto.
 
-Representação do sinal de áudio: O sinal de áudio deve ser transformado num Mel Espectrograma com 128 bins de frequência, hop size de 10 ms e janelamento por Hamming com comprimento de 25 ms. 
+Representação do sinal de áudio: O sinal de áudio deve ser transformado num Mel Espectrograma com 128 bins de frequência, hop size de 10 ms e janelamento por Hamming com comprimento de 25 ms.
 por
 Modelo Pré-treinado a ser utilizado: https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593. Audio Spectrogram Transformer (AST).
 
 4. Idioma
 
 Os comentários e a documentação do código (docstrings) podem ser escritos em Inglês. O feedback para o usuário deve ser escrito em português.
+
+5. Para executar o projeto.
+
+uv run python -m ast_finetuning.train `
+  --data-dir datasets `
+  --metadata datasets/fma_tracks.csv `
+  --subset small
