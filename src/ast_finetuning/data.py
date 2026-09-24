@@ -21,7 +21,8 @@ class ASTMelSpectrogram(torch.nn.Module):
         hop_length: int = 160,
         win_length: int = 400,
         target_frames: int = 1024,
-        # From AST preprocessor_config.json: https://huggingface.co/asteroid/ast-finetuned-audioset-10-10-0.4593.
+        # From the AST preprocessor_config.json. ASTFeatureExtractor normalizes
+        # as (log_mel - mean) / (std * 2).
         mean: float = -4.2677393,
         std: float = 4.5689974,
     ):
@@ -49,8 +50,9 @@ class ASTMelSpectrogram(torch.nn.Module):
                 waveform, source_sample_rate, self.sample_rate
             )
         mel = self.mel_spectrogram(waveform)
-        log_mel = 10.0 * torch.log10(mel.clamp_min(1e-10))
-        log_mel = (log_mel - self.mean) / self.std
+        # ASTFeatureExtractor uses natural-log Mel energies (not dB).
+        log_mel = torch.log(mel.clamp_min(1e-10))
+        log_mel = (log_mel - self.mean) / (self.std * 2.0)
         if log_mel.shape[-1] >= self.target_frames:
             log_mel = log_mel[..., : self.target_frames]
         else:
@@ -189,6 +191,14 @@ class FMADataset(Dataset):
         self.labels = [self.class_to_index[genre] for genre in self.genres]
         self.mel_transform = mel_transform or ASTMelSpectrogram()
         self.length = len(self.track_ids)
+        audio_paths = [self._get_audio_path(track_id) for track_id in self.track_ids]
+        missing_paths = [path for path in audio_paths if not path.is_file()]
+        if missing_paths:
+            examples = ", ".join(str(path) for path in missing_paths[:3])
+            raise FileNotFoundError(
+                f"{len(missing_paths)} arquivos de áudio do FMA não foram encontrados. "
+                f"Exemplos: {examples}"
+            )
 
     def _get_audio_path(self, track_id):
         # The FMA dataset organizes audio files in folders based on the first three digits of the track ID.
@@ -203,13 +213,12 @@ class FMADataset(Dataset):
         track_id = self.track_ids[idx]
         audio_path = self._get_audio_path(track_id)
 
-        # Load the audio file using torchaudio. If it fails, create a silent waveform.
+        # Do not replace failed reads with silence: that would make every failed
+        # sample identical and can produce chance-level accuracy without errors.
         try:
             waveform, sample_rate = torchaudio.load(audio_path)
-        except Exception:
-            # Create a silent 30s waveform.
-            sample_rate = 22050  # Default sample rate for FMA dataset
-            waveform = torch.zeros(2, 30 * sample_rate)
+        except Exception as error:
+            raise RuntimeError(f"Não foi possível carregar o áudio FMA: {audio_path}") from error
 
         mel_spectrogram = self.mel_transform(waveform, sample_rate)
         label = torch.tensor(self.labels[idx], dtype=torch.long)

@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metadata",
         type=Path,
-        default=Path("datasets/fma_metadata/tracks.csv"),
+        default=Path("datasets/fma_tracks.csv"),
         help="CSV de metadados do FMA.",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/ast-finetuned"))
@@ -43,7 +43,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--learning-rate", type=float, default=5e-4)
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1e-5,
+        help="Learning rate recomendado para fine-tuning do backbone AST completo.",
+    )
     parser.add_argument("--seed", type=int, default=1337)
     return parser.parse_args()
 
@@ -71,7 +76,17 @@ def main() -> None:
         mel_transform=mel_transform,
     )
     labels = train_set.classes_
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=0)
+    if len(val_set) == 0:
+        raise ValueError("O conjunto de validação do FMA está vazio.")
+    print(
+        f"train_samples={len(train_set)} "
+        f"validation_samples={len(val_set)} "
+        f"num_classes={len(labels)} "
+        f"classes={labels}"
+    )
+    train_loader = DataLoader(
+        train_set, batch_size=args.batch_size, shuffle=True, num_workers=0
+    )
     val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
 
     model = ASTFineTuner.from_backbone(args.model_name, num_labels=len(labels)).to(device)
