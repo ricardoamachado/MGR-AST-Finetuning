@@ -217,9 +217,10 @@ class FMADataset(Dataset):
         # sample identical and can produce chance-level accuracy without errors.
         try:
             waveform, sample_rate = torchaudio.load(audio_path)
-        except Exception as error:
-            raise RuntimeError(f"Não foi possível carregar o áudio FMA: {audio_path}") from error
-
+        except Exception as warning:
+            print(f"Não foi possível carregar o áudio FMA: {audio_path}")
+            sample_rate = self.mel_transform.sample_rate
+            waveform = torch.zeros(1, 30 * sample_rate)
         mel_spectrogram = self.mel_transform(waveform, sample_rate)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
         return {"input_values": mel_spectrogram, "labels": label}

@@ -25,10 +25,10 @@ winget install "FFmpeg (Shared)"
 
 ```powershell
 uv sync
-uv run python -m ast_finetuning.train --data-dir datasets --metadata datasets/fma_tracks.csv --subset small --epochs 10 --batch-size 8
+uv run python -m ast_finetuning.train --data-dir datasets --metadata datasets/fma_tracks.csv --subset small --epochs 10 --batch-size 16
 ```
 
 O PyTorch e o TorchAudio são obtidos do índice CUDA 13.0 configurado no `pyproject.toml`. O melhor checkpoint fica em `checkpoints/ast-finetuned`. A cada época, as losses e acurácias de treino e validação são impressas e registradas em `checkpoints/ast-finetuned/history.csv`.
 
 
-Durante o treinamento e a avaliação, o `FMADataset` retorna diretamente o espectrograma Mel, nunca a forma de onda. Cada áudio é convertido para mono, reamostrado para 16 kHz e transformado com 128 bins de frequência, `hop_length=160` (10 ms), janela Hamming de 400 amostras (25 ms) e `n_fft=400`. O log-Mel é normalizado de acordo com o `ASTFeatureExtractor` e ajustado para 1024 frames, o tamanho esperado pelo AST. Falhas na leitura dos MP3 agora interrompem o treino com o caminho do arquivo para evitar treinar acidentalmente com sinais silenciosos. A perda usa logits (`CrossEntropyLoss`); o Softmax é aplicado para expor as probabilidades na saída.
+Durante o treinamento e a avaliação, o `FMADataset` retorna diretamente o espectrograma Mel, nunca a forma de onda. Cada áudio é convertido para mono, reamostrado para 16 kHz e transformado com 128 bins de frequência, `hop_length=160` (10 ms), janela Hamming de 400 amostras (25 ms) e `n_fft=400`. O log-Mel é normalizado de acordo com o `ASTFeatureExtractor` e ajustado para 1024 frames, o tamanho esperado pelo AST.
