@@ -41,8 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/ast-finetuned"))
     parser.add_argument("--model-name", default="MIT/ast-finetuned-audioset-10-10-0.4593")
     parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument(
         "--learning-rate",
         type=float,
@@ -59,13 +59,22 @@ def main() -> None:
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor = ASTFeatureExtractor.from_pretrained(args.model_name)
-    mel_transform = ASTMelSpectrogram(mean=extractor.mean, std=extractor.std)
+    train_mel_transform = ASTMelSpectrogram(
+        mean=extractor.mean,
+        std=extractor.std,
+        is_training=True,
+    )
+    validation_mel_transform = ASTMelSpectrogram(
+        mean=extractor.mean,
+        std=extractor.std,
+        is_training=False,
+    )
     train_set = FMADataset(
         args.data_dir,
         args.metadata,
         subset=args.subset,
         train=True,
-        mel_transform=mel_transform,
+        mel_transform=train_mel_transform,
     )
     val_set = FMADataset(
         args.data_dir,
@@ -73,7 +82,7 @@ def main() -> None:
         subset=args.subset,
         train=False,
         class_names=train_set.classes_,
-        mel_transform=mel_transform,
+        mel_transform=validation_mel_transform,
     )
     labels = train_set.classes_
     if len(val_set) == 0:

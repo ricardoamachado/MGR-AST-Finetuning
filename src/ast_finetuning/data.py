@@ -12,7 +12,7 @@ AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
 
 
 class ASTMelSpectrogram(torch.nn.Module):
-    """Convert waveforms to the fixed-size log-Mel input expected by AST."""
+    """Convert waveforms using the same Kaldi fbank preprocessing as AST."""
 
     def __init__(
         self,
@@ -21,45 +21,81 @@ class ASTMelSpectrogram(torch.nn.Module):
         hop_length: int = 160,
         win_length: int = 400,
         target_frames: int = 1024,
-        # From the AST preprocessor_config.json. ASTFeatureExtractor normalizes
-        # as (log_mel - mean) / (std * 2).
         mean: float = -4.2677393,
         std: float = 4.5689974,
+        is_training: bool = True,
     ):
         super().__init__()
         self.sample_rate = sample_rate
         self.target_frames = target_frames
         self.mean = mean
         self.std = std
-        self.mel_spectrogram = torchaudio.transforms.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=win_length,
-            win_length=win_length,
-            hop_length=hop_length,
-            n_mels=n_mels,
-            window_fn=torch.hamming_window,
-            power=2.0,
-            center=True,
-        )
+        self.is_training = is_training
+        self.n_mels = n_mels
+        self.hop_length = hop_length
+        self.win_length = win_length
 
-    def forward(self, waveform: torch.Tensor, source_sample_rate: int) -> torch.Tensor:
-        """Return a normalized tensor with shape ``[target_frames, 128]``."""
-        waveform = waveform.mean(dim=0) if waveform.ndim == 2 else waveform
+        expected_sample_rate = 16_000
+        expected_hop_length = 160
+        expected_win_length = 400
+        if (
+            sample_rate != expected_sample_rate
+            or hop_length != expected_hop_length
+            or win_length != expected_win_length
+        ):
+            raise ValueError(
+                "A configuração do AST exige sample_rate=16000, "
+                "hop_length=160 e win_length=400."
+            )
+
+    def forward(
+        self, waveform: torch.Tensor, source_sample_rate: int
+    ) -> torch.Tensor:
+        # Garante entrada mono 1D [amostras]
+        if waveform.ndim > 1:
+            waveform = waveform.mean(dim=0)
+
+        # Reamostragem se necessário
         if source_sample_rate != self.sample_rate:
             waveform = torchaudio.functional.resample(
                 waveform, source_sample_rate, self.sample_rate
             )
-        mel = self.mel_spectrogram(waveform)
-        # ASTFeatureExtractor uses natural-log Mel energies (not dB).
-        log_mel = torch.log(mel.clamp_min(1e-10))
-        log_mel = (log_mel - self.mean) / (self.std * 2.0)
-        if log_mel.shape[-1] >= self.target_frames:
-            log_mel = log_mel[..., : self.target_frames]
-        else:
+
+        # This is the same preprocessing path used by ASTFeatureExtractor when
+        # torchaudio is available: Hanning window, 25 ms frames, 10 ms shift,
+        # pre-emphasis, DC-offset removal, and a 512-point FFT selected by Kaldi.
+        log_mel = torchaudio.compliance.kaldi.fbank(
+            waveform.unsqueeze(0),
+            sample_frequency=self.sample_rate,
+            num_mel_bins=self.n_mels,
+            window_type="hanning",
+            frame_length=self.win_length * 1000.0 / self.sample_rate,
+            frame_shift=self.hop_length * 1000.0 / self.sample_rate,
+            dither=0.0,
+        )
+
+        total_frames = log_mel.shape[0]
+
+        # Random crop during training; AST-compatible initial crop otherwise.
+        if total_frames > self.target_frames:
+            if self.is_training:
+                start = torch.randint(
+                    0, total_frames - self.target_frames + 1, (1,)
+                ).item()
+            else:
+                start = 0
+            log_mel = log_mel[start : start + self.target_frames, :]
+        elif total_frames < self.target_frames:
             log_mel = torch.nn.functional.pad(
-                log_mel, (0, self.target_frames - log_mel.shape[-1])
+                log_mel, (0, 0, 0, self.target_frames - total_frames)
             )
-        return log_mel.transpose(0, 1).contiguous()
+
+        # ASTFeatureExtractor normalizes after padding/truncation as
+        # (log_mel - mean) / (std * 2).
+        log_mel = (log_mel - self.mean) / (self.std * 2.0)
+
+        # Return [target_frames, n_mels] -> [1024, 128].
+        return log_mel.contiguous()
 
 
 def build_manifest(
@@ -217,10 +253,10 @@ class FMADataset(Dataset):
         # sample identical and can produce chance-level accuracy without errors.
         try:
             waveform, sample_rate = torchaudio.load(audio_path)
-        except Exception as warning:
-            print(f"Não foi possível carregar o áudio FMA: {audio_path}")
-            sample_rate = self.mel_transform.sample_rate
-            waveform = torch.zeros(1, 30 * sample_rate)
+        except Exception as error:
+            raise RuntimeError(
+                f"Não foi possível carregar o áudio FMA: {audio_path}"
+            ) from error
         mel_spectrogram = self.mel_transform(waveform, sample_rate)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
         return {"input_values": mel_spectrogram, "labels": label}

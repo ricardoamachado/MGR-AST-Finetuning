@@ -20,7 +20,11 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     labels = json.loads((args.checkpoint / "labels.json").read_text(encoding="utf-8"))
     extractor = ASTFeatureExtractor.from_pretrained(args.checkpoint)
-    mel_transform = ASTMelSpectrogram(mean=extractor.mean, std=extractor.std)
+    mel_transform = ASTMelSpectrogram(
+        mean=extractor.mean,
+        std=extractor.std,
+        is_training=False,
+    )
     model = ASTFineTuner.from_pretrained(args.checkpoint, num_labels=len(labels)).to(device).eval()
     waveform, sample_rate = torchaudio.load(args.audio)
     mel_spectrogram = mel_transform(waveform, sample_rate).unsqueeze(0)
