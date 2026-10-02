@@ -46,8 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=1e-5,
-        help="Learning rate recomendado para fine-tuning do backbone AST completo.",
+        default=1e-4,
+        help="Learning rate da cabeça classificadora com o backbone AST congelado.",
     )
     parser.add_argument("--seed", type=int, default=1337)
     return parser.parse_args()
@@ -99,7 +99,20 @@ def main() -> None:
     val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
 
     model = ASTFineTuner.from_backbone(args.model_name, num_labels=len(labels)).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    trainable_parameters = [
+        (name, parameter)
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+    ]
+    trainable_parameter_count = sum(parameter.numel() for _, parameter in trainable_parameters)
+    print(
+        f"trainable_parameters={trainable_parameter_count} "
+        f"trainable_modules={[name for name, _ in trainable_parameters]}"
+    )
+    optimizer = torch.optim.AdamW(
+        (parameter for _, parameter in trainable_parameters),
+        lr=args.learning_rate,
+    )
     best_accuracy = -1.0
     args.output_dir.mkdir(parents=True, exist_ok=True)
     history_path = args.output_dir / "history.csv"

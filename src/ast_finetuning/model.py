@@ -1,4 +1,4 @@
-"""AST backbone with a trainable softmax classification head."""
+"""Frozen AST backbone with a trainable softmax classification head."""
 
 import torch
 from torch import nn
@@ -6,7 +6,7 @@ from transformers import ASTModel, ASTPreTrainedModel
 
 
 class ASTFineTuner(ASTPreTrainedModel):
-    """AST with all backbone parameters trainable and an explicit Softmax head."""
+    """Frozen AST backbone with a trainable Softmax classification head."""
 
     def __init__(self, config, num_labels: int, dropout: float = 0.1):
         super().__init__(config)
@@ -17,6 +17,18 @@ class ASTFineTuner(ASTPreTrainedModel):
         self.softmax = nn.Softmax(dim=-1)
         self._classification_loss = nn.CrossEntropyLoss()
         self.post_init()
+        self.freeze_backbone()
+
+    def freeze_backbone(self) -> None:
+        """Freeze AST weights and keep the backbone deterministic during training."""
+        self.ast.requires_grad_(False)
+        self.ast.eval()
+
+    def train(self, mode: bool = True):
+        """Train the head while keeping the frozen backbone in evaluation mode."""
+        super().train(mode)
+        self.ast.eval()
+        return self
 
     @classmethod
     def from_backbone(cls, model_name: str, num_labels: int, dropout: float = 0.1) -> "ASTFineTuner":
