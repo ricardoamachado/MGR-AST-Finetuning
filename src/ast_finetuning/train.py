@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
 from .data import ASTMelSpectrogram, FMADataset
-from .model import ASTFineTuner
+from .model import DEFAULT_LORA_TARGET_MODULES, FINETUNING_METHODS, ASTFineTuner
 
 
 def _prepare_batch(batch: object, device: torch.device) -> dict[str, torch.Tensor]:
@@ -44,10 +44,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument(
+        "--finetuning",
+        choices=FINETUNING_METHODS,
+        default="head",
+        help=(
+            "Metodologia de ajuste fino: 'head' treina apenas a cabeça Softmax com o backbone AST congelado; "
+            "'lora' treina adaptadores LoRA no backbone junto com a cabeça."
+        ),
+    )
+    parser.add_argument(
         "--learning-rate",
         type=float,
         default=1e-4,
-        help="Learning rate da cabeça classificadora com o backbone AST congelado.",
+        help="Learning rate dos parâmetros treináveis (cabeça classificadora e, com LoRA, os adaptadores).",
+    )
+    parser.add_argument("--lora-rank", type=int, default=8, help="Rank r das matrizes LoRA.")
+    parser.add_argument("--lora-alpha", type=int, default=16, help="Fator de escala alpha do LoRA.")
+    parser.add_argument("--lora-dropout", type=float, default=0.1, help="Dropout aplicado na entrada dos adaptadores LoRA.")
+    parser.add_argument(
+        "--lora-target-modules",
+        nargs="+",
+        default=list(DEFAULT_LORA_TARGET_MODULES),
+        help="Camadas lineares do AST que recebem adaptadores LoRA (ex.: q_proj k_proj v_proj o_proj fc1 fc2).",
     )
     parser.add_argument("--seed", type=int, default=1337)
     return parser.parse_args()
@@ -98,17 +116,30 @@ def main() -> None:
     )
     val_loader = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
 
-    model = ASTFineTuner.from_backbone(args.model_name, num_labels=len(labels)).to(device)
+    model = ASTFineTuner.from_backbone(
+        args.model_name,
+        num_labels=len(labels),
+        finetuning_method=args.finetuning,
+        lora_rank=args.lora_rank,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=args.lora_dropout,
+        lora_target_modules=tuple(args.lora_target_modules),
+    ).to(device)
     trainable_parameters = [
         (name, parameter)
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     ]
     trainable_parameter_count = sum(parameter.numel() for _, parameter in trainable_parameters)
+    total_parameter_count = sum(parameter.numel() for parameter in model.parameters())
     print(
+        f"finetuning={args.finetuning} "
         f"trainable_parameters={trainable_parameter_count} "
-        f"trainable_modules={[name for name, _ in trainable_parameters]}"
+        f"total_parameters={total_parameter_count} "
+        f"trainable_ratio={trainable_parameter_count / total_parameter_count:.4%}"
     )
+    if args.finetuning == "head":
+        print(f"trainable_modules={[name for name, _ in trainable_parameters]}")
     optimizer = torch.optim.AdamW(
         (parameter for _, parameter in trainable_parameters),
         lr=args.learning_rate,
