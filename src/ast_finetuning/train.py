@@ -59,9 +59,9 @@ def parse_args() -> argparse.Namespace:
         default=1e-4,
         help="Learning rate dos parâmetros treináveis (cabeça classificadora e, com LoRA, os adaptadores).",
     )
-    parser.add_argument("--lora-rank", type=int, default=8, help="Rank r das matrizes LoRA.")
-    parser.add_argument("--lora-alpha", type=int, default=16, help="Fator de escala alpha do LoRA.")
-    parser.add_argument("--lora-dropout", type=float, default=0.1, help="Dropout aplicado na entrada dos adaptadores LoRA.")
+    parser.add_argument("--lora-rank", type=int, default=1, help="Rank r das matrizes LoRA.")
+    parser.add_argument("--lora-alpha", type=int, default=2, help="Fator de escala alpha do LoRA.")
+    parser.add_argument("--lora-dropout", type=float, default=0.2, help="Dropout aplicado na entrada dos adaptadores LoRA.")
     parser.add_argument(
         "--lora-target-modules",
         nargs="+",

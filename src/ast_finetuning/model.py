@@ -46,9 +46,9 @@ class ASTFineTuner(ASTPreTrainedModel):
 
     def enable_lora(
         self,
-        rank: int = 8,
-        alpha: int = 16,
-        dropout: float = 0.1,
+        rank: int = 1,
+        alpha: int = 2,
+        dropout: float = 0.2,
         target_modules: tuple[str, ...] = DEFAULT_LORA_TARGET_MODULES,
     ) -> None:
         """Store the LoRA hyperparameters in the config and inject the adapters into AST."""
@@ -82,11 +82,11 @@ class ASTFineTuner(ASTPreTrainedModel):
         cls,
         model_name: str,
         num_labels: int,
-        dropout: float = 0.1,
+        dropout: float = 0.2,
         finetuning_method: str = "head",
-        lora_rank: int = 8,
-        lora_alpha: int = 16,
-        lora_dropout: float = 0.1,
+        lora_rank: int = 1,
+        lora_alpha: int = 2,
+        lora_dropout: float = 0.2,
         lora_target_modules: tuple[str, ...] = DEFAULT_LORA_TARGET_MODULES,
     ) -> "ASTFineTuner":
         """Create the classifier while loading weights from a Hugging Face AST checkpoint."""
