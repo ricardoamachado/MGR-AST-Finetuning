@@ -30,9 +30,13 @@ USAR: torchaudio e torchaudio.functional como prioridade. Caso seja necessário 
 
 3. Padrões de Implementação.
 
-Dataset: Estamos trabalhando com os subsets FMA-Small, FMA-Medium e FMA-Large do FreeMusicArchive. Para salvar espaço no computador, estou somente com o fma_small dentro da pasta de datasets, pois o objetivo inicial é fazer uma prova de conceito.
+Dataset: Estamos trabalhando com os subsets FMA-Small, FMA-Medium do FreeMusicArchive e o dataset GTZAN. Para salvar espaço no computador, estou somente com o fma_small e o GTZAN dentro da pasta de datasets, pois o objetivo inicial é fazer uma prova de conceito.
 
-Train Validation Split: Coluna `split` dentro do csv de metadados do FMA contém separação entre `training`, `validation` e `test`.
+Train Validation Split FMA: Coluna `split` dentro do csv de metadados do FMA contém separação entre `training`, `validation` e `test`.
+
+Train Validation Split GTZAN: Utilizar os arquivos de texto dentro da pasta GTZAN `train_stratified.txt`, `valid_stratified.txt` e `test_stratified.txt`.
+
+Data Augmentation - APENAS GTZAN: Pitch shift de meio tom para baixo e meio tom para cima, pois o subconjunto de treino original possui apenas 500 amostras.
 
 Caminho: Todos os datasets estarão localizados na pasta /datasets/ dentro da raiz do projeto.
 

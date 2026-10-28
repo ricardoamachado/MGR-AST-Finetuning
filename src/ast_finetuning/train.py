@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
-from .data import ASTMelSpectrogram, FMADataset
+from .data import ASTMelSpectrogram, FMADataset, GTZANDataset
 from .metrics import macro_metrics, save_best_epoch_metrics
 from .model import DEFAULT_LORA_TARGET_MODULES, FINETUNING_METHODS, ASTFineTuner
 
@@ -32,16 +32,37 @@ def _prepare_batch(batch: object, device: torch.device) -> dict[str, torch.Tenso
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ajuste fino do AST em arquivos de áudio locais.")
+    parser.add_argument(
+        "--dataset",
+        choices=["fma", "gtzan"],
+        default="fma",
+        help="Dataset de treino. Cada dataset gera um modelo separado, pois os gêneros são diferentes.",
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
     parser.add_argument(
         "--metadata",
         type=Path,
         default=Path("datasets/fma_tracks.csv"),
-        help="CSV de metadados do FMA.",
+        help="CSV de metadados do FMA (ignorado no GTZAN).",
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/ast-finetuned"))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Pasta do checkpoint. Padrão: checkpoints/ast-{dataset}-{finetuning}.",
+    )
     parser.add_argument("--model-name", default="MIT/ast-finetuned-audioset-10-10-0.4593")
     parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
+    parser.add_argument(
+        "--pitch-shift-semitones",
+        type=int,
+        nargs="*",
+        default=[-1, 1],
+        help=(
+            "Deslocamentos de pitch (em semitons) usados como data augmentation no treino do GTZAN; "
+            "passe a flag sem valores para desativar. Ignorado no FMA."
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument(
@@ -69,7 +90,10 @@ def parse_args() -> argparse.Namespace:
         help="Camadas lineares do AST que recebem adaptadores LoRA (ex.: q_proj k_proj v_proj o_proj fc1 fc2).",
     )
     parser.add_argument("--seed", type=int, default=1337)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.output_dir is None:
+        args.output_dir = Path("checkpoints") / f"ast-{args.dataset}-{args.finetuning}"
+    return args
 
 
 def main() -> None:
@@ -88,25 +112,41 @@ def main() -> None:
         std=extractor.std,
         is_training=False,
     )
-    train_set = FMADataset(
-        args.data_dir,
-        args.metadata,
-        subset=args.subset,
-        train=True,
-        mel_transform=train_mel_transform,
-    )
-    val_set = FMADataset(
-        args.data_dir,
-        args.metadata,
-        subset=args.subset,
-        train=False,
-        class_names=train_set.classes_,
-        mel_transform=validation_mel_transform,
-    )
+    if args.dataset == "fma":
+        train_set = FMADataset(
+            args.data_dir,
+            args.metadata,
+            subset=args.subset,
+            split="training",
+            mel_transform=train_mel_transform,
+        )
+        val_set = FMADataset(
+            args.data_dir,
+            args.metadata,
+            subset=args.subset,
+            split="validation",
+            class_names=train_set.classes_,
+            mel_transform=validation_mel_transform,
+        )
+    else:
+        train_set = GTZANDataset(
+            args.data_dir,
+            split="train",
+            mel_transform=train_mel_transform,
+            pitch_shift_semitones=tuple(args.pitch_shift_semitones),
+            device=device,
+        )
+        val_set = GTZANDataset(
+            args.data_dir,
+            split="validation",
+            class_names=train_set.classes_,
+            mel_transform=validation_mel_transform,
+        )
     labels = train_set.classes_
     if len(val_set) == 0:
-        raise ValueError("O conjunto de validação do FMA está vazio.")
+        raise ValueError(f"O conjunto de validação do {args.dataset.upper()} está vazio.")
     print(
+        f"dataset={args.dataset} "
         f"train_samples={len(train_set)} "
         f"validation_samples={len(val_set)} "
         f"num_classes={len(labels)} "

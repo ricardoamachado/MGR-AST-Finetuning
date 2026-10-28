@@ -15,7 +15,12 @@ from .model import ASTFineTuner
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("audio", type=Path)
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/ast-finetuned"))
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        required=True,
+        help="Pasta do checkpoint, ex.: checkpoints/ast-gtzan-head ou checkpoints/ast-fma-lora.",
+    )
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     labels = json.loads((args.checkpoint / "labels.json").read_text(encoding="utf-8"))

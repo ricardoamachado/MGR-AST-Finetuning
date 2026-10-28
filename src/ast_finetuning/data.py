@@ -194,12 +194,14 @@ class FMADataset(Dataset):
         dataset_dir: Path,
         metadata_path: Path,
         subset="small",
-        train=True,
+        split: str = "training",
         class_names: list[str] | None = None,
         mel_transform: ASTMelSpectrogram | None = None,
     ):
         if subset not in {"small", "medium", "large"}:
             raise ValueError("Subset must be one of 'small', 'medium', or 'large'.")
+        if split not in {"training", "validation", "test"}:
+            raise ValueError("Split must be one of 'training', 'validation', or 'test'.")
         self.data_dir = Path(dataset_dir)
         self.metadata_path = Path(metadata_path)
         self.subset = subset
@@ -211,11 +213,8 @@ class FMADataset(Dataset):
         df_subset = df.filter(pl.col("subset") == subset).drop_nulls(
             subset=["genre_top"]
         )
-        # Train and validation splits are defined in the metadata file, so we filter accordingly.
-        if train:
-            df_subset = df_subset.filter(pl.col("split") == "training")
-        else:
-            df_subset = df_subset.filter(pl.col("split") != "training")
+        # The official training/validation/test splits are defined in the metadata file.
+        df_subset = df_subset.filter(pl.col("split") == split)
         # Get the track_ids and genres as lists.
         self.track_ids = df_subset["track_id"].cast(pl.Int64).to_list()
         self.genres = df_subset["genre_top"].to_list()
@@ -257,6 +256,128 @@ class FMADataset(Dataset):
             raise RuntimeError(
                 f"Não foi possível carregar o áudio FMA: {audio_path}"
             ) from error
+        mel_spectrogram = self.mel_transform(waveform, sample_rate)
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        return {"input_values": mel_spectrogram, "labels": label}
+
+
+GTZAN_SPLIT_FILES = {
+    "train": "train_stratified.txt",
+    "validation": "valid_stratified.txt",
+    "test": "test_stratified.txt",
+}
+
+
+def _try_load(path: Path) -> tuple[torch.Tensor, int] | None:
+    try:
+        return torchaudio.load(path)
+    except Exception:
+        return None
+
+
+def build_pitch_shift_cache(
+    audio_paths: list[Path],
+    source_dir: Path,
+    cache_dir: Path,
+    semitones: tuple[int, ...],
+    sample_rate: int = 16_000,
+    device: torch.device | None = None,
+) -> None:
+    """Write pitch-shifted copies of each file as 16 kHz WAVs, skipping the ones already cached.
+
+    The phase vocoder is too slow to run on the CPU every epoch, so each shift is computed
+    once (on ``device``, ideally a GPU) and reused across epochs and runs.
+    """
+    device = device or torch.device("cpu")
+    pending = [
+        (path, n_steps)
+        for n_steps in semitones
+        for path in audio_paths
+        if not pitch_shift_cache_path(path, source_dir, cache_dir, n_steps).is_file()
+    ]
+    if not pending:
+        return
+    print(f"pitch_shift_cache: generating {len(pending)} files in {cache_dir} on {device}")
+    for path, n_steps in pending:
+        waveform, source_rate = torchaudio.load(path)
+        waveform = torchaudio.functional.resample(waveform.mean(dim=0), source_rate, sample_rate)
+        shifted = torchaudio.functional.pitch_shift(
+            waveform.to(device), sample_rate, n_steps, n_fft=2048
+        )
+        target = pitch_shift_cache_path(path, source_dir, cache_dir, n_steps)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Write to a temporary file first so an interrupted run never leaves a truncated WAV.
+        temporary = target.with_suffix(".tmp.wav")
+        torchaudio.save(temporary, shifted.clamp(-1.0, 1.0).unsqueeze(0).cpu(), sample_rate)
+        temporary.replace(target)
+
+
+def pitch_shift_cache_path(path: Path, source_dir: Path, cache_dir: Path, n_steps: int) -> Path:
+    return cache_dir / f"semitones_{n_steps:+d}" / path.relative_to(source_dir)
+
+
+class GTZANDataset(Dataset):
+    """Load GTZAN files from the stratified split lists and expose Mel spectrograms.
+
+    GTZAN has no metadata file: the genre is the name of the folder that contains each track.
+    When ``pitch_shift_semitones`` is given, every track of the split is also included once per
+    shift, so ``(-1, 1)`` triples the number of samples.
+    """
+
+    def __init__(
+        self,
+        dataset_dir: Path,
+        split: str = "train",
+        class_names: list[str] | None = None,
+        mel_transform: ASTMelSpectrogram | None = None,
+        pitch_shift_semitones: tuple[int, ...] = (),
+        cache_dir: Path | None = None,
+        device: torch.device | None = None,
+    ):
+        if split not in GTZAN_SPLIT_FILES:
+            raise ValueError(f"Split must be one of {sorted(GTZAN_SPLIT_FILES)}.")
+        self.root = Path(dataset_dir) / "GTZAN"
+        split_file = self.root / GTZAN_SPLIT_FILES[split]
+        relative_paths = [line.strip() for line in split_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        paths = [self.root / relative_path for relative_path in relative_paths]
+        missing_paths = [path for path in paths if not path.is_file()]
+        if missing_paths:
+            examples = ", ".join(str(path) for path in missing_paths[:3])
+            raise FileNotFoundError(
+                f"{len(missing_paths)} arquivos de áudio do GTZAN não foram encontrados. Exemplos: {examples}"
+            )
+        # GTZAN ships with at least one corrupted file (jazz.00054.wav), so drop unreadable tracks.
+        unreadable = [path for path in paths if _try_load(path) is None]
+        if unreadable:
+            print(f"gtzan_{split}: ignorando {len(unreadable)} arquivo(s) ilegível(is): {[path.name for path in unreadable]}")
+            paths = [path for path in paths if path not in unreadable]
+
+        genres = [path.parent.name for path in paths]
+        self.classes_ = sorted(class_names or set(genres))
+        self.class_to_index = {name: index for index, name in enumerate(self.classes_)}
+        unknown_classes = sorted(set(genres) - set(self.class_to_index))
+        if unknown_classes:
+            raise ValueError(f"Classes ausentes no conjunto de treino: {unknown_classes}")
+
+        self.audio_paths = list(paths)
+        self.labels = [self.class_to_index[genre] for genre in genres]
+        if pitch_shift_semitones:
+            cache_dir = cache_dir or Path(dataset_dir) / "GTZAN_pitch_shifted"
+            build_pitch_shift_cache(paths, self.root, cache_dir, pitch_shift_semitones, device=device)
+            for n_steps in pitch_shift_semitones:
+                self.audio_paths += [pitch_shift_cache_path(path, self.root, cache_dir, n_steps) for path in paths]
+                self.labels += [self.class_to_index[genre] for genre in genres]
+        self.mel_transform = mel_transform or ASTMelSpectrogram()
+
+    def __len__(self):
+        return len(self.audio_paths)
+
+    def __getitem__(self, idx):
+        audio_path = self.audio_paths[idx]
+        try:
+            waveform, sample_rate = torchaudio.load(audio_path)
+        except Exception as error:
+            raise RuntimeError(f"Não foi possível carregar o áudio GTZAN: {audio_path}") from error
         mel_spectrogram = self.mel_transform(waveform, sample_rate)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
         return {"input_values": mel_spectrogram, "labels": label}
