@@ -33,6 +33,18 @@ uv run python -m ast_finetuning.train --data-dir datasets --metadata datasets/fm
 
 O PyTorch e o TorchAudio são obtidos do índice CUDA 13.0 configurado no `pyproject.toml`. O melhor checkpoint fica em `checkpoints/ast-finetuned`. A cada época, as losses e acurácias de treino e validação são impressas e registradas em `checkpoints/ast-finetuned/history.csv`. O treino imprime também a quantidade de parâmetros treináveis; no modo `head`, imprime a lista deles, que deve conter apenas `classifier.weight` e `classifier.bias`.
 
+### Métricas de desempenho
+
+Todas as métricas são calculadas no conjunto de validação e salvas em `--output-dir`:
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `history.csv` | Por época: losses, acurácias e `validation_precision_micro`, `validation_recall_micro` e `validation_f1_micro`. |
+| `per_class_metrics.csv` | Precision, recall, F1 e suporte por classe na época de melhor acurácia de validação. |
+| `confusion_matrix.csv` | Matriz de confusão normalizada por linha da melhor época: a célula (`true_label`=i, coluna j) é P(predito = j \| verdadeiro = i). |
+
+Como cada faixa tem um único gênero, precision, recall e F1 micro-averaged são iguais à acurácia. Os arquivos da melhor época são sobrescritos sempre que um novo checkpoint é salvo.
+
 ### Ajuste fino com LoRA
 
 ```powershell

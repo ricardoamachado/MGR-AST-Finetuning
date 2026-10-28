@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
 from .data import ASTMelSpectrogram, FMADataset
+from .metrics import micro_metrics, save_best_epoch_metrics
 from .model import DEFAULT_LORA_TARGET_MODULES, FINETUNING_METHODS, ASTFineTuner
 
 
@@ -170,23 +171,28 @@ def main() -> None:
         train_accuracy = train_correct / max(1, train_total)
         model.eval()
         val_loss_sum = 0.0
-        correct = total = 0
+        val_targets: list[torch.Tensor] = []
+        val_predictions: list[torch.Tensor] = []
         with torch.no_grad():
             for batch in val_loader:
                 batch = _prepare_batch(batch, device)
                 output = model(**batch)
                 batch_size = batch["labels"].size(0)
                 val_loss_sum += output["loss"].item() * batch_size
-                correct += (output["logits"].argmax(dim=-1) == batch["labels"]).sum().item()
-                total += batch_size
-        val_loss = val_loss_sum / max(1, total)
-        val_accuracy = correct / max(1, total)
+                val_targets.append(batch["labels"].cpu())
+                val_predictions.append(output["logits"].argmax(dim=-1).cpu())
+        y_true = torch.cat(val_targets).numpy()
+        y_pred = torch.cat(val_predictions).numpy()
+        val_loss = val_loss_sum / max(1, len(y_true))
+        val_accuracy = float((y_true == y_pred).mean())
+        val_micro = micro_metrics(y_true, y_pred)
         metrics = {
             "epoch": epoch,
             "train_loss": train_loss,
             "validation_loss": val_loss,
             "train_accuracy": train_accuracy,
             "validation_accuracy": val_accuracy,
+            **{f"validation_{name}": value for name, value in val_micro.items()},
         }
         history.append(metrics)
         pl.DataFrame(history).write_csv(history_path)
@@ -195,10 +201,14 @@ def main() -> None:
             f"train_loss={train_loss:.4f} "
             f"train_accuracy={train_accuracy:.4f} "
             f"validation_loss={val_loss:.4f} "
-            f"validation_accuracy={val_accuracy:.4f}"
+            f"validation_accuracy={val_accuracy:.4f} "
+            f"validation_precision_micro={val_micro['precision_micro']:.4f} "
+            f"validation_recall_micro={val_micro['recall_micro']:.4f} "
+            f"validation_f1_micro={val_micro['f1_micro']:.4f}"
         )
         if val_accuracy >= best_accuracy:
             best_accuracy = val_accuracy
+            save_best_epoch_metrics(args.output_dir, epoch, y_true, y_pred, labels)
             model.save_pretrained(args.output_dir)
             extractor.save_pretrained(args.output_dir)
             (args.output_dir / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
