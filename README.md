@@ -39,11 +39,11 @@ Todas as métricas são calculadas no conjunto de validação e salvas em `--out
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `history.csv` | Por época: losses, acurácias e `validation_precision_micro`, `validation_recall_micro` e `validation_f1_micro`. |
+| `history.csv` | Por época: losses, acurácias e `validation_precision_macro`, `validation_recall_macro` e `validation_f1_macro`. |
 | `per_class_metrics.csv` | Precision, recall, F1 e suporte por classe na época de melhor acurácia de validação. |
 | `confusion_matrix.csv` | Matriz de confusão normalizada por linha da melhor época: a célula (`true_label`=i, coluna j) é P(predito = j \| verdadeiro = i). |
 
-Como cada faixa tem um único gênero, precision, recall e F1 micro-averaged são iguais à acurácia. Os arquivos da melhor época são sobrescritos sempre que um novo checkpoint é salvo.
+As métricas macro-averaged são a média simples das métricas por classe, de modo que todos os gêneros têm o mesmo peso independentemente do número de faixas; uma classe nunca prevista entra com valor 0. Os arquivos da melhor época são sobrescritos sempre que um novo checkpoint é salvo.
 
 ### Ajuste fino com LoRA
 
@@ -55,12 +55,12 @@ Hiperparâmetros disponíveis:
 
 | Flag | Padrão | Descrição |
 | --- | --- | --- |
-| `--lora-rank` | `8` | Rank `r` das matrizes `A` e `B`. |
-| `--lora-alpha` | `16` | Escala `alpha`; a atualização é multiplicada por `alpha / r`. |
+| `--lora-rank` | `1` | Rank `r` das matrizes `A` e `B`. |
+| `--lora-alpha` | `2` | Escala `alpha`; a atualização é multiplicada por `alpha / r`. |
 | `--lora-dropout` | `0.1` | Dropout aplicado na entrada dos adaptadores. |
 | `--lora-target-modules` | `q_proj v_proj` | Camadas lineares do AST adaptadas. Opções: `q_proj`, `k_proj`, `v_proj`, `o_proj` (atenção) e `fc1`, `fc2` (MLP). |
 
-Com os valores padrão, cerca de 300 mil parâmetros são treinados (≈0,35% do modelo). No modo `lora` o backbone fica em modo de treino para que o dropout dos adaptadores seja aplicado. A metodologia e os hiperparâmetros do LoRA são salvos no `config.json` do checkpoint, de modo que o `predict` reconstrói o modelo correto sem flags adicionais. Use `--output-dir` diferentes para não sobrescrever o checkpoint de uma metodologia com o da outra.
+Com os valores padrão e as 8 classes do FMA-Small, 43.016 parâmetros são treinados (≈0,05% do modelo). No modo `lora` o backbone fica em modo de treino para que o dropout dos adaptadores seja aplicado. A metodologia e os hiperparâmetros do LoRA são salvos no `config.json` do checkpoint, de modo que o `predict` reconstrói o modelo correto sem flags adicionais. Use `--output-dir` diferentes para não sobrescrever o checkpoint de uma metodologia com o da outra.
 
 
 Durante o treinamento e a avaliação, o `FMADataset` retorna diretamente o espectrograma Mel, nunca a forma de onda. A extração usa o mesmo `torchaudio.compliance.kaldi.fbank` do AST original: 128 bins, hop de 10 ms, janela Hanning de 25 ms, pré-ênfase, remoção de offset DC e FFT de 512 pontos. O log-Mel é normalizado de acordo com o `ASTFeatureExtractor` e ajustado para 1024 frames, o tamanho esperado pelo AST. O treino usa recorte aleatório como augmentation; validação e inferência usam recorte determinístico.

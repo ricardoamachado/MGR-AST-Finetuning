@@ -7,15 +7,15 @@ import polars as pl
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
 
-def micro_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
-    """Micro-averaged precision, recall and F1 over all classes.
+def macro_metrics(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int) -> dict[str, float]:
+    """Macro-averaged precision, recall and F1: the unweighted mean of the per-class scores.
 
-    For single-label multiclass predictions these three values coincide with accuracy.
+    Every class is included, so a class absent from the predictions contributes zero.
     """
     precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="micro", zero_division=0
+        y_true, y_pred, labels=np.arange(num_classes), average="macro", zero_division=0
     )
-    return {"precision_micro": float(precision), "recall_micro": float(recall), "f1_micro": float(f1)}
+    return {"precision_macro": float(precision), "recall_macro": float(recall), "f1_macro": float(f1)}
 
 
 def per_class_metrics(y_true: np.ndarray, y_pred: np.ndarray, class_names: list[str]) -> pl.DataFrame:

@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, default_collate
 from transformers import ASTFeatureExtractor
 
 from .data import ASTMelSpectrogram, FMADataset
-from .metrics import micro_metrics, save_best_epoch_metrics
+from .metrics import macro_metrics, save_best_epoch_metrics
 from .model import DEFAULT_LORA_TARGET_MODULES, FINETUNING_METHODS, ASTFineTuner
 
 
@@ -185,14 +185,14 @@ def main() -> None:
         y_pred = torch.cat(val_predictions).numpy()
         val_loss = val_loss_sum / max(1, len(y_true))
         val_accuracy = float((y_true == y_pred).mean())
-        val_micro = micro_metrics(y_true, y_pred)
+        val_macro = macro_metrics(y_true, y_pred, num_classes=len(labels))
         metrics = {
             "epoch": epoch,
             "train_loss": train_loss,
             "validation_loss": val_loss,
             "train_accuracy": train_accuracy,
             "validation_accuracy": val_accuracy,
-            **{f"validation_{name}": value for name, value in val_micro.items()},
+            **{f"validation_{name}": value for name, value in val_macro.items()},
         }
         history.append(metrics)
         pl.DataFrame(history).write_csv(history_path)
@@ -202,9 +202,9 @@ def main() -> None:
             f"train_accuracy={train_accuracy:.4f} "
             f"validation_loss={val_loss:.4f} "
             f"validation_accuracy={val_accuracy:.4f} "
-            f"validation_precision_micro={val_micro['precision_micro']:.4f} "
-            f"validation_recall_micro={val_micro['recall_micro']:.4f} "
-            f"validation_f1_micro={val_micro['f1_micro']:.4f}"
+            f"validation_precision_macro={val_macro['precision_macro']:.4f} "
+            f"validation_recall_macro={val_macro['recall_macro']:.4f} "
+            f"validation_f1_macro={val_macro['f1_macro']:.4f}"
         )
         if val_accuracy >= best_accuracy:
             best_accuracy = val_accuracy
