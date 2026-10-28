@@ -186,6 +186,13 @@ class AudioDataset(Dataset):
         }
 
 
+FMA_NESTED_SUBSETS = {
+    "small": ("small",),
+    "medium": ("small", "medium"),
+    "large": ("small", "medium", "large"),
+}
+
+
 class FMADataset(Dataset):
     """Load FMA files and expose Mel spectrograms instead of raw waveforms."""
 
@@ -198,8 +205,8 @@ class FMADataset(Dataset):
         class_names: list[str] | None = None,
         mel_transform: ASTMelSpectrogram | None = None,
     ):
-        if subset not in {"small", "medium", "large"}:
-            raise ValueError("Subset must be one of 'small', 'medium', or 'large'.")
+        if subset not in FMA_NESTED_SUBSETS:
+            raise ValueError(f"Subset must be one of {list(FMA_NESTED_SUBSETS)}.")
         if split not in {"training", "validation", "test"}:
             raise ValueError("Split must be one of 'training', 'validation', or 'test'.")
         self.data_dir = Path(dataset_dir)
@@ -210,7 +217,9 @@ class FMADataset(Dataset):
         df = df.filter(pl.col("track_id") != "track_id").with_columns(
             pl.col("track_id").cast(pl.Int64)
         )
-        df_subset = df.filter(pl.col("subset") == subset).drop_nulls(
+        # The metadata stores the smallest subset containing each track, while the subsets
+        # are nested (small ⊂ medium ⊂ large), e.g. fma_medium also holds every small track.
+        df_subset = df.filter(pl.col("subset").is_in(FMA_NESTED_SUBSETS[subset])).drop_nulls(
             subset=["genre_top"]
         )
         # The official training/validation/test splits are defined in the metadata file.

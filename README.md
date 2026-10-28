@@ -1,6 +1,6 @@
 # Fine-tuning do AST em PyTorch
 
-Projeto para fine-tuning do modelo [`MIT/ast-finetuned-audioset-10-10-0.4593`](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) para classificação de gêneros musicais nos datasets FMA e GTZAN. Como os gêneros dos dois datasets não coincidem, cada um gera um modelo separado, escolhido pela flag `--dataset {fma,gtzan}`.
+Projeto para fine-tuning do modelo [`MIT/ast-finetuned-audioset-10-10-0.4593`](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) para classificação de gêneros musicais nos datasets FMA e GTZAN. Como os gêneros dos datasets não coincidem, cada um gera um modelo separado, escolhido pela flag `--dataset {fma_small,fma_medium,gtzan}` (padrão `fma_small`).
 
 Há duas metodologias de ajuste fino, escolhidas pela flag `--finetuning`:
 
@@ -13,6 +13,7 @@ Há duas metodologias de ajuste fino, escolhidas pela flag `--finetuning`:
 datasets/
 ├── fma_small/
 │   └── 000/000002.mp3
+├── fma_medium/                   # opcional, para --dataset fma_medium
 ├── fma_tracks.csv
 ├── GTZAN/
 │   ├── blues/blues.00000.wav
@@ -24,7 +25,7 @@ datasets/
 └── GTZAN_pitch_shifted/          # gerado automaticamente (cache da augmentation)
 ```
 
-**FMA:** o `fma_tracks.csv` é usado para obter o gênero (`genre_top`) e a divisão oficial do FMA (coluna `split`). O treino usa `training` e a validação usa apenas `validation`; o split `test` fica reservado para o teste e não influencia a escolha da melhor época. No FMA-Small isso resulta em 6400 faixas de treino e 800 de validação, balanceadas entre os 8 gêneros. Use `--metadata` para informar outro caminho.
+**FMA:** o `fma_tracks.csv` é usado para obter o gênero (`genre_top`) e a divisão oficial do FMA (coluna `split`). O treino usa `training` e a validação usa apenas `validation`; o split `test` fica reservado para o teste e não influencia a escolha da melhor época. No FMA-Small isso resulta em 6400 faixas de treino e 800 de validação, balanceadas entre os 8 gêneros. Os subconjuntos são aninhados (o `fma_medium` contém todas as faixas do `fma_small`), então `--dataset fma_medium` usa as 25.000 faixas da pasta `datasets/fma_medium/` (19.922 de treino e 2505 de validação). Use `--metadata` para informar outro caminho.
 
 **GTZAN:** não há arquivo de metadados; o gênero é o nome da pasta de cada faixa. O treino usa `train_stratified.txt` e a validação usa `valid_stratified.txt` (`test_stratified.txt` fica reservado para o teste). O arquivo `jazz/jazz.00054.wav`, corrompido na distribuição original do GTZAN, é detectado e ignorado automaticamente, deixando 499 faixas no treino.
 
@@ -44,7 +45,7 @@ winget install "FFmpeg (Shared)"
 
 ```powershell
 uv sync
-uv run python -m ast_finetuning.train --dataset fma --data-dir datasets --metadata datasets/fma_tracks.csv --subset small --epochs 10 --batch-size 16
+uv run python -m ast_finetuning.train --dataset fma_small --data-dir datasets --metadata datasets/fma_tracks.csv --epochs 10 --batch-size 16
 uv run python -m ast_finetuning.train --dataset gtzan --data-dir datasets --epochs 10 --batch-size 16
 ```
 

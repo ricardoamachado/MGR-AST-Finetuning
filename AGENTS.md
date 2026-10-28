@@ -51,6 +51,6 @@ Os comentários e a documentação do código (docstrings) podem ser escritos em
 5. Para executar o projeto.
 
 uv run python -m ast_finetuning.train `
+  --dataset fma_small `
   --data-dir datasets `
-  --metadata datasets/fma_tracks.csv `
-  --subset small
+  --metadata datasets/fma_tracks.csv

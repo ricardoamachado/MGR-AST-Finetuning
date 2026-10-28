@@ -34,8 +34,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ajuste fino do AST em arquivos de áudio locais.")
     parser.add_argument(
         "--dataset",
-        choices=["fma", "gtzan"],
-        default="fma",
+        choices=["fma_small", "fma_medium", "gtzan"],
+        default="fma_small",
         help="Dataset de treino. Cada dataset gera um modelo separado, pois os gêneros são diferentes.",
     )
     parser.add_argument("--data-dir", type=Path, default=Path("datasets"))
@@ -52,7 +52,6 @@ def parse_args() -> argparse.Namespace:
         help="Pasta do checkpoint. Padrão: checkpoints/ast-{dataset}-{finetuning}.",
     )
     parser.add_argument("--model-name", default="MIT/ast-finetuned-audioset-10-10-0.4593")
-    parser.add_argument("--subset", choices=["small", "medium", "large"], default="small", help="Subconjunto do FMA a ser usado.")
     parser.add_argument(
         "--pitch-shift-semitones",
         type=int,
@@ -112,18 +111,19 @@ def main() -> None:
         std=extractor.std,
         is_training=False,
     )
-    if args.dataset == "fma":
+    if args.dataset.startswith("fma_"):
+        fma_subset = args.dataset.removeprefix("fma_")
         train_set = FMADataset(
             args.data_dir,
             args.metadata,
-            subset=args.subset,
+            subset=fma_subset,
             split="training",
             mel_transform=train_mel_transform,
         )
         val_set = FMADataset(
             args.data_dir,
             args.metadata,
-            subset=args.subset,
+            subset=fma_subset,
             split="validation",
             class_names=train_set.classes_,
             mel_transform=validation_mel_transform,
