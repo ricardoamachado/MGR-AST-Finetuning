@@ -62,7 +62,16 @@ def parse_args() -> argparse.Namespace:
             "passe a flag sem valores para desativar. Ignorado no FMA."
         ),
     )
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=3,
+        help=(
+            "Interrompe o treino após esse número de épocas seguidas sem redução da validation_loss; "
+            "use 0 para desativar."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument(
         "--finetuning",
@@ -186,6 +195,8 @@ def main() -> None:
         lr=args.learning_rate,
     )
     best_accuracy = -1.0
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
     args.output_dir.mkdir(parents=True, exist_ok=True)
     history_path = args.output_dir / "history.csv"
     history: list[dict[str, float | int]] = []
@@ -252,6 +263,18 @@ def main() -> None:
             model.save_pretrained(args.output_dir)
             extractor.save_pretrained(args.output_dir)
             (args.output_dir / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+        if 0 < args.early_stopping_patience <= epochs_without_improvement:
+            print(
+                f"early_stopping: validation_loss não diminuiu em {epochs_without_improvement} épocas seguidas "
+                f"(melhor={best_val_loss:.4f}); treino interrompido na época {epoch}."
+            )
+            break
 
 
 if __name__ == "__main__":

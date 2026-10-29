@@ -45,11 +45,13 @@ winget install "FFmpeg (Shared)"
 
 ```powershell
 uv sync
-uv run python -m ast_finetuning.train --dataset fma_small --data-dir datasets --metadata datasets/fma_tracks.csv --epochs 10 --batch-size 16
-uv run python -m ast_finetuning.train --dataset gtzan --data-dir datasets --epochs 10 --batch-size 16
+uv run python -m ast_finetuning.train --dataset fma_small --data-dir datasets --metadata datasets/fma_tracks.csv --epochs 30 --batch-size 16
+uv run python -m ast_finetuning.train --dataset gtzan --data-dir datasets --epochs 30 --batch-size 16
 ```
 
 O PyTorch e o TorchAudio são obtidos do índice CUDA 13.0 configurado no `pyproject.toml`. O melhor checkpoint fica em `checkpoints/ast-{dataset}-{finetuning}` (por exemplo `checkpoints/ast-gtzan-lora`), a menos que `--output-dir` seja informado, de modo que os modelos de cada dataset e metodologia não se sobrescrevem. A cada época, as losses e acurácias de treino e validação são impressas e registradas em `history.csv` dentro dessa pasta. O treino imprime também a quantidade de parâmetros treináveis; no modo `head`, imprime a lista deles, que deve conter apenas `classifier.weight` e `classifier.bias`.
+
+O treino roda por até 30 épocas (`--epochs`) e usa early stopping: se a `validation_loss` não diminuir em 3 épocas seguidas (`--early-stopping-patience`), o treino é interrompido. Use `--early-stopping-patience 0` para desativar. O checkpoint salvo continua sendo o da época de maior acurácia de validação.
 
 Para classificar um arquivo com um checkpoint treinado:
 
